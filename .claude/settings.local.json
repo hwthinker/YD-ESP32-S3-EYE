@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir \"c:\\\\Users\\\\hardware\\\\Documents\\\\REPO-Github\\\\YD-ESP32-S3-EYE\\\\source-code\\\\03-test-mic\")",
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:asset.conrad.com)",
+      "WebFetch(domain:documentation.espressif.com)",
+      "WebFetch(domain:www.espboards.dev)",
+      "WebFetch(domain:www.andibond.com)",
+      "WebFetch(domain:dl.espressif.com)",
+      "WebFetch(domain:docs.zephyrproject.org)",
+      "WebFetch(domain:nuttx.apache.org)",
+      "WebFetch(domain:deepwiki.com)",
+      "WebFetch(domain:components.espressif.com)",
+      "WebFetch(domain:manuals.plus)",
+      "Bash(gh api *)",
+      "Bash(python -c \"import sys,json; t=json.load\\(sys.stdin\\); [print\\(i['path']\\) for i in t.get\\('tree',[]\\) if 'eye' in i['path'].lower\\(\\) or 's3_eye' in i['path'].lower\\(\\)]\")",
+      "WebFetch(domain:vcc-gnd.cn)",
+      "PowerShell(New-Item -ItemType Directory -Force -Path \"c:\\\\Users\\\\hardware\\\\Documents\\\\REPO-Github\\\\YD-ESP32-S3-EYE\\\\source-code\\\\08-lcd-hello\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code"
+    ]
+  }
+}

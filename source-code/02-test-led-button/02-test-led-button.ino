@@ -1,0 +1,55 @@
+/*
+ * 05-test-led-button.ino
+ * Versi Stabil - Sesuai Request (UP=Terang, DOWN=Mati)
+ */
+
+#define LED_PIN         3
+#define BUTTON_ADC_PIN  1
+#define BOOT_BUTTON     0
+
+bool ledOn = false;
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("\n--- ESP32-S3-EYE Reverted to Stable ---");
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW); // Start OFF
+  
+  pinMode(BOOT_BUTTON, INPUT_PULLUP);
+}
+
+void loop() {
+  // 1. Tombol BOOT (Toggle)
+  static bool lastBoot = HIGH;
+  bool currentBoot = digitalRead(BOOT_BUTTON);
+  if (currentBoot == LOW && lastBoot == HIGH) {
+    ledOn = !ledOn;
+    digitalWrite(LED_PIN, ledOn ? HIGH : LOW);
+    Serial.print("BOOT: "); Serial.println(ledOn ? "ON" : "OFF");
+    delay(200);
+  }
+  lastBoot = currentBoot;
+
+  // 2. Tombol Fungsi (ADC)
+  int adc = analogRead(BUTTON_ADC_PIN);
+  if (adc < 3500) {
+    // Mapping Akurat: UP(413), DOWN(923), PLAY(2328), MENU(2861)
+    if (adc > 300 && adc < 600) { // UP
+      Serial.println("Tombol: UP -> LED ON");
+      ledOn = true;
+      digitalWrite(LED_PIN, HIGH);
+    } 
+    else if (adc > 800 && adc < 1100) { // DOWN
+      Serial.println("Tombol: DOWN -> LED OFF");
+      ledOn = false;
+      digitalWrite(LED_PIN, LOW);
+    }
+    else if (adc > 2100 && adc < 2500) Serial.println("Tombol: PLAY");
+    else if (adc > 2700 && adc < 3000) Serial.println("Tombol: MENU");
+    
+    delay(250); 
+  }
+  delay(10);
+}

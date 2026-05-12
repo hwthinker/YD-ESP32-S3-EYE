@@ -1,0 +1,275 @@
+/*
+ * 06-camera-stream.ino
+ * Live camera stream via WiFi pada ESP32-S3-EYE
+ *
+ * Program ini akan:
+ *  1. Deteksi otomatis tipe sensor kamera (OV2640 atau lainnya)
+ *  2. Buat WiFi Access Point sendiri (tidak perlu router)
+ *  3. Jalankan web server — buka browser untuk lihat live stream
+ *
+ * Board   : ESP32S3 Dev Module
+ * PSRAM   : OPI PSRAM (wajib enabled)
+ * Partition: Huge APP (3MB No OTA/1MB SPIFFS)
+ *
+ * Cara pakai:
+ *  1. Upload sketch ini
+ *  2. Buka Serial Monitor (115200) — lihat IP address
+ *  3. Sambungkan HP/PC ke WiFi "ESP32-S3-EYE-CAM" / pass "12345678"
+ *  4. Buka browser → http://192.168.4.1
+ *
+ * Pin kamera ESP32-S3-EYE (OV2640):
+ *  XCLK=15, SIOD=4, SIOC=5
+ *  D0=11, D1=9, D2=8, D3=10, D4=12, D5=18, D6=17, D7=16
+ *  VSYNC=6, HREF=7, PCLK=13
+ */
+
+#include "esp_camera.h"
+#include "esp_http_server.h"
+#include <WiFi.h>
+
+// ── WiFi Access Point ────────────────────────────────────
+#define AP_SSID  "ESP32-S3-EYE-CAM"
+#define AP_PASS  "12345678"
+
+// ── Pin Kamera ESP32-S3-EYE ──────────────────────────────
+#define CAM_PWDN   -1
+#define CAM_RESET  -1
+#define CAM_XCLK   15
+#define CAM_SIOD    4
+#define CAM_SIOC    5
+#define CAM_Y9     16
+#define CAM_Y8     17
+#define CAM_Y7     18
+#define CAM_Y6     12
+#define CAM_Y5     10
+#define CAM_Y4      8
+#define CAM_Y3      9
+#define CAM_Y2     11
+#define CAM_VSYNC   6
+#define CAM_HREF    7
+#define CAM_PCLK   13
+
+// ── LED onboard ──────────────────────────────────────────
+#define LED_PIN     3
+
+// ── MJPEG stream boundary ────────────────────────────────
+#define BOUNDARY        "gc0p4Jq0M2Yt08jU534c0p"
+#define CONTENT_TYPE    "multipart/x-mixed-replace;boundary=" BOUNDARY
+#define FRAME_HDR       "\r\n--" BOUNDARY "\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n"
+#define FRAME_HDR_LEN   128
+
+httpd_handle_t stream_server = NULL;
+
+// ── HTML halaman utama ────────────────────────────────────
+static const char INDEX_HTML[] PROGMEM = R"rawhtml(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32-S3-EYE Camera</title>
+  <style>
+    body { margin:0; background:#111; color:#eee; font-family:monospace;
+           display:flex; flex-direction:column; align-items:center; }
+    h2   { margin:16px 0 8px; font-size:1.1em; color:#aaf; }
+    #cam { max-width:100%; border:2px solid #446; border-radius:6px; }
+    p    { font-size:.8em; color:#668; margin:8px; }
+  </style>
+</head>
+<body>
+  <h2>&#128247; ESP32-S3-EYE — Live Camera</h2>
+  <img id="cam" src="/stream" alt="Memuat stream...">
+  <p>Stream: MJPEG via WiFi AP &nbsp;|&nbsp; 16kHz mic tersedia di port lain</p>
+</body>
+</html>
+)rawhtml";
+
+// ── Handler: halaman HTML ─────────────────────────────────
+static esp_err_t index_handler(httpd_req_t *req) {
+  httpd_resp_set_type(req, "text/html");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  return httpd_resp_send(req, INDEX_HTML, strlen(INDEX_HTML));
+}
+
+// ── Handler: MJPEG stream ─────────────────────────────────
+static esp_err_t stream_handler(httpd_req_t *req) {
+  camera_fb_t *fb   = NULL;
+  esp_err_t    res  = ESP_OK;
+  uint8_t     *jpg  = NULL;
+  size_t       jlen = 0;
+  char         hdr[FRAME_HDR_LEN];
+
+  httpd_resp_set_type(req, CONTENT_TYPE);
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+  while (true) {
+    fb = esp_camera_fb_get();
+    if (!fb) {
+      Serial.println("[WARN] Gagal ambil frame kamera");
+      res = ESP_FAIL;
+      break;
+    }
+
+    if (fb->format != PIXFORMAT_JPEG) {
+      bool ok = frame2jpg(fb, 80, &jpg, &jlen);
+      esp_camera_fb_return(fb);
+      fb = NULL;
+      if (!ok) { res = ESP_FAIL; break; }
+    } else {
+      jpg  = fb->buf;
+      jlen = fb->len;
+    }
+
+    size_t hlen = snprintf(hdr, FRAME_HDR_LEN, FRAME_HDR, jlen);
+    res = httpd_resp_send_chunk(req, hdr, hlen);
+    if (res == ESP_OK) res = httpd_resp_send_chunk(req, (const char*)jpg, jlen);
+
+    if (fb) { esp_camera_fb_return(fb); fb = NULL; }
+    else if (jpg) { free(jpg); jpg = NULL; }
+
+    if (res != ESP_OK) break;
+  }
+  return res;
+}
+
+// ── Start web server ──────────────────────────────────────
+void startWebServer() {
+  httpd_config_t cfg  = HTTPD_DEFAULT_CONFIG();
+  cfg.server_port     = 80;
+  cfg.max_uri_handlers = 4;
+
+  if (httpd_start(&stream_server, &cfg) != ESP_OK) {
+    Serial.println("[ERROR] Gagal start web server");
+    return;
+  }
+
+  httpd_uri_t uri_index  = { "/",       HTTP_GET, index_handler,  NULL };
+  httpd_uri_t uri_stream = { "/stream", HTTP_GET, stream_handler, NULL };
+  httpd_register_uri_handler(stream_server, &uri_index);
+  httpd_register_uri_handler(stream_server, &uri_stream);
+
+  Serial.println("[OK] Web server berjalan");
+}
+
+// ── Setup ─────────────────────────────────────────────────
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  Serial.println();
+  Serial.println("╔══════════════════════════════════════╗");
+  Serial.println("║  ESP32-S3-EYE  ─  Camera Stream     ║");
+  Serial.println("╚══════════════════════════════════════╝");
+
+  // ── Inisialisasi kamera ───────────────────────────────
+  camera_config_t cam_cfg;
+  cam_cfg.ledc_channel    = LEDC_CHANNEL_0;
+  cam_cfg.ledc_timer      = LEDC_TIMER_0;
+  cam_cfg.pin_d0          = CAM_Y2;
+  cam_cfg.pin_d1          = CAM_Y3;
+  cam_cfg.pin_d2          = CAM_Y4;
+  cam_cfg.pin_d3          = CAM_Y5;
+  cam_cfg.pin_d4          = CAM_Y6;
+  cam_cfg.pin_d5          = CAM_Y7;
+  cam_cfg.pin_d6          = CAM_Y8;
+  cam_cfg.pin_d7          = CAM_Y9;
+  cam_cfg.pin_xclk        = CAM_XCLK;
+  cam_cfg.pin_pclk        = CAM_PCLK;
+  cam_cfg.pin_vsync       = CAM_VSYNC;
+  cam_cfg.pin_href        = CAM_HREF;
+  cam_cfg.pin_sccb_sda    = CAM_SIOD;
+  cam_cfg.pin_sccb_scl    = CAM_SIOC;
+  cam_cfg.pin_pwdn        = CAM_PWDN;
+  cam_cfg.pin_reset       = CAM_RESET;
+  cam_cfg.xclk_freq_hz    = 20000000;
+  cam_cfg.pixel_format    = PIXFORMAT_JPEG;
+  cam_cfg.grab_mode       = CAMERA_GRAB_WHEN_EMPTY;
+  cam_cfg.fb_location     = CAMERA_FB_IN_PSRAM;
+  cam_cfg.frame_size      = FRAMESIZE_VGA;   // 640x480
+  cam_cfg.jpeg_quality    = 12;              // 0=best, 63=worst
+  cam_cfg.fb_count        = 2;
+
+  Serial.print("Inisialisasi kamera... ");
+  esp_err_t err = esp_camera_init(&cam_cfg);
+  if (err != ESP_OK) {
+    Serial.printf("GAGAL (0x%x)\n", err);
+    Serial.println("→ Pastikan PSRAM = OPI PSRAM dan Partition = Huge APP");
+    // Blink cepat tanda error
+    for (int i = 0; i < 20; i++) {
+      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+      delay(100);
+    }
+    return;
+  }
+  Serial.println("OK");
+
+  // ── Deteksi sensor ────────────────────────────────────
+  sensor_t *s = esp_camera_sensor_get();
+  Serial.print("Sensor PID: 0x");
+  Serial.print(s->id.PID, HEX);
+  Serial.print("  → ");
+  switch (s->id.PID) {
+    case OV2640_PID: Serial.println("OV2640 ✓"); break;
+    case OV7670_PID: Serial.println("OV7670");   break;
+    case OV3660_PID: Serial.println("OV3660");   break;
+    case OV5640_PID: Serial.println("OV5640");   break;
+    default:         Serial.printf("Sensor lain (0x%04X)\n", s->id.PID);
+  }
+
+  // Penyesuaian gambar OV2640
+  if (s->id.PID == OV2640_PID) {
+    s->set_framesize(s,   FRAMESIZE_VGA);
+    s->set_quality(s,     10);       // kualitas JPEG
+    s->set_brightness(s,  0);
+    s->set_contrast(s,    0);
+    s->set_saturation(s,  0);
+    s->set_whitebal(s,    1);        // auto white balance
+    s->set_exposure_ctrl(s, 1);     // auto exposure
+    s->set_gain_ctrl(s,   1);       // auto gain
+    s->set_hmirror(s,     0);
+    s->set_vflip(s,       0);
+  }
+
+  // ── WiFi Access Point ─────────────────────────────────
+  Serial.println("\nMembuat WiFi Access Point...");
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID, AP_PASS);
+  delay(500);
+  IPAddress ip = WiFi.softAPIP();
+
+  Serial.println();
+  Serial.println("╔══════════════════════════════════════╗");
+  Serial.println("║  KAMERA SIAP — CARA AKSES:           ║");
+  Serial.println("╠══════════════════════════════════════╣");
+  Serial.printf( "║  WiFi SSID : %-23s ║\n", AP_SSID);
+  Serial.printf( "║  Password  : %-23s ║\n", AP_PASS);
+  Serial.printf( "║  URL       : http://%-16s ║\n", ip.toString().c_str());
+  Serial.println("╠══════════════════════════════════════╣");
+  Serial.println("║  1. Sambung HP/PC ke WiFi di atas    ║");
+  Serial.println("║  2. Buka browser, ketik URL di atas  ║");
+  Serial.println("║  3. Nikmati live stream kamera!      ║");
+  Serial.println("╚══════════════════════════════════════╝");
+
+  startWebServer();
+
+  // LED nyala tanda siap
+  digitalWrite(LED_PIN, HIGH);
+}
+
+// ── Loop ─────────────────────────────────────────────────
+void loop() {
+  // Kedipkan LED pelan tanda server aktif
+  static unsigned long last = 0;
+  static bool ledState = true;
+  if (millis() - last > 2000) {
+    ledState  = !ledState;
+    digitalWrite(LED_PIN, ledState ? HIGH : LOW);
+    last = millis();
+
+    // Info koneksi ke serial
+    Serial.printf("[STATUS] Klien terhubung: %d\n", WiFi.softAPgetStationNum());
+  }
+}
