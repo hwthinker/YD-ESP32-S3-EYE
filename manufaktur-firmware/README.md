@@ -1,36 +1,47 @@
-# YD-ESP32-S3-EYE (espressif_esp32s3_eye V.2.2)
+# YD-ESP32-S3-EYE (espressif_esp32s3_eye V.2.2) — Manufacturer Firmware
 
-## Burning firmware from manufaktur
+## Pendahuluan
 
-----
+Panduan untuk mengembalikan (flash) firmware bawaan pabrik V2.2 pada board YD-ESP32-S3-EYE. Firmware ini adalah firmware original dari VCC-GND Studio yang menjalankan demo lengkap semua peripheral board (kamera, LCD, WiFi, audio).
 
+Kegunaan: restore board ke kondisi pabrik setelah eksperimen dengan Arduino/CircuitPython.
 
+> **File firmware:** `esp32-s3-eye-v2.2-firmware-v0.2.0-en.bin`
 
-## Working firmware:
+---
 
--  [esp32-s3-eye-v2.2-firmware-v0.2.0-en.bin](manufaktur-firmware\esp32-s3-eye-v2.2-firmware-v0.2.0-en.bin) 
+## Pin Definition
 
-## Step 1: Install esptool (kalau belum)
+Tidak relevan — firmware sudah dikonfigurasi untuk board ini. Semua pin mapping sudah built-in di firmware binary.
+
+---
+
+## Library yang Digunakan
+
+| Tool | Fungsi |
+|------|--------|
+| `esptool` (Python) | Flash tool untuk chip ESP32 |
+
+---
+
+## Cara Instal
+
+### Step 1: Instal esptool
 
 ```powershell
 pip install esptool
 ```
 
-------
-
-## Step 2: Erase lash (Full Chip Erase)
+### Step 2: Erase Flash (Full Chip Erase)
 
 Colok USB, tekan **BOOT** + **RST** (lepas RST dulu, baru lepas BOOT). Board masuk **Download Mode**.
-
-Buka PowerShell/CMD, jalankan:
 
 ```powershell
 esptool --chip esp32s3 --port COM5 erase-flash
 ```
 
 **Expected output:**
-
-```plain
+```
 Connecting....
 Chip is ESP32-S3
 ...
@@ -39,51 +50,48 @@ Chip erase completed successfully in X.Xs
 Hard resetting via RTS pin...
 ```
 
-------
-
-## Step 3: Download Firmware Binary V2.2
-
-Firmware link-mu pastian yang versi 2.2 bukan versi yang lain: http://vcc-gnd.cn/vcc_gnd/esp-who/src/branch/master/default_bin/esp32-s3-eye/v2.2/esp32-s3-eye-v2.2-firmware-v0.2.0-en.bin
-
-------
-
-## Step 4: Flash Firmware
+### Step 3: Flash Firmware
 
 ```powershell
-esptool --chip esp32s3 --port COM5 --baud 921600 write-flash -z 0x0  esp32-s3-eye-v2.2-firmware-v0.2.0-en.bin 
+esptool --chip esp32s3 --port COM5 --baud 921600 write-flash -z 0x0 esp32-s3-eye-v2.2-firmware-v0.2.0-en.bin
 ```
 
-| Parameter        | Arti                                                |
-| :--------------- | :-------------------------------------------------- |
-| `--chip esp32s3` | Target chip ESP32-S3                                |
-| `--port COM5`    | Port serial board-mu                                |
-| `--baud 921600`  | Kecepatan upload (bisa turun ke 460800 kalau gagal) |
-| `write-flash`    | Perintah tulis flash                                |
-| `-z`             | Compress data sebelum kirim                         |
-| `0x0`            | Alamat awal flash (offset 0)                        |
-| `nama_file.bin`  | File firmware                                       |
+| Parameter | Arti |
+|-----------|------|
+| `--chip esp32s3` | Target chip ESP32-S3 |
+| `--port COM5` | Port serial (sesuaikan) |
+| `--baud 921600` | Kecepatan upload |
+| `write-flash` | Perintah tulis flash |
+| `-z` | Kompresi data |
+| `0x0` | Alamat awal flash (offset 0) |
 
-------
+### Step 4: Reset Board
 
-## Step 5: Reset Board
+Tekan tombol **RST** saja (tanpa BOOT) untuk boot normal. Board akan menjalankan firmware pabrik.
 
-Setelah flash selesai, tekan **RST** button saja (tanpa BOOT) untuk boot normal.
+---
 
-------
+## Alur Berpikir
 
-## Kalau Gagal Connecting
-
-Coba turunkan baud rate:
-
-```powershell
-esptool.py --chip esp32s3 --port COM5 --baud 460800 write-flash -z 0x0 esp32-s3-eye-v2.2-firmware-v0.2.0-en.bin 
+```
+MULAI:
+  ├─ Instal esptool (pip install esptool)
+  ├─ Masuk Download Mode (BOOT+RST, lepas RST, lepas BOOT)
+  ├─ Erase flash (full chip) → bersihkan semua data
+  ├─ Flash firmware .bin ke offset 0x0 (921600 baud)
+  │   └─ Gagal? → Turunkan baud ke 460800
+  ├─ Reset board (RST saja)
+  └─ Verifikasi board booting normal
 ```
 
-```powershell
-# List semua COM port
-python -m serial.tools.list_ports
+---
 
-# Atau cek esptool detect
-esptool.py --port COM5 chip_id
-```
+## Troubleshooting
 
+| Masalah | Solusi |
+|---------|--------|
+| Gagal connecting | Turunkan baud rate ke 460800 |
+| Port tidak ditemukan | Cek Device Manager, atau `python -m serial.tools.list_ports` |
+| `Chip erase failed` | Pastikan board dalam Download Mode (BOOT+RST) |
+| Board tidak booting setelah flash | Tekan RST sekali lagi, tunggu 5 detik |
+| `Wrong boot mode detected` | Jangan tekan BOOT saat RST — cukup RST saja untuk boot normal |

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mpremote --version)",
+      "Bash(python -m mpremote version)",
+      "Bash(mpremote connect *)",
+      "PowerShell(Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Root -ne $null } | Select-Object Name, Root, Description)",
+      "Bash(wmic logicaldisk *)",
+      "PowerShell(Get-Volume *)",
+      "Bash(python *)"
+    ]
+  }
+}
