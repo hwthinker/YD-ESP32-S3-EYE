@@ -1,0 +1,120 @@
+/*
+ * 09-accelerometer.ino
+ * Membaca akselerometer 3-axis QMA7981/QMA6100P via I2C
+ * dan menampilkan nilai X, Y, Z (satuan g) ke Serial UART.
+ *
+ * Board  : YD-ESP32-S3-EYE
+ * Chip   : QMA7981 / QMA6100P  (Chip ID 0xE7 / 0xE8) QMA7981
+ * I2C    : SDA=GPIO4, SCL=GPIO5, Addr=0x12
+ * Baud   : 115200
+ *
+ * Catatan init yang confirmed working:
+ *   - Soft reset 0xB6 lalu clear 0x00, tunggu 50ms
+ *   - Baca REG_PM dulu, clear mode bits, lalu set active (0x80)
+ *   - Range 0x04 = ±8g, BW 0x05 = 128Hz
+ */
+
+#include <Wire.h>
+
+#define QMA_ADDR     0x12
+#define SDA_PIN      4
+#define SCL_PIN      5
+
+#define REG_CHIP_ID  0x00
+#define REG_DX_L     0x01
+#define REG_RANGE    0x0F
+#define REG_BW_ODR   0x10
+#define REG_PM       0x11
+#define REG_SOFT_RST 0x36
+
+// ±8g, 14-bit signed: 2^13 = 8192 counts = 8g
+#define SCALE_G      (8.0f / 8192.0f)
+
+static uint8_t readReg(uint8_t reg) {
+    Wire.beginTransmission(QMA_ADDR);
+    Wire.write(reg);
+    Wire.endTransmission(false);
+    Wire.requestFrom(QMA_ADDR, (uint8_t)1);
+    return Wire.available() ? Wire.read() : 0xFF;
+}
+
+static void writeReg(uint8_t reg, uint8_t val) {
+    Wire.beginTransmission(QMA_ADDR);
+    Wire.write(reg);
+    Wire.write(val);
+    Wire.endTransmission();
+}
+
+static bool readXYZ(float &ax, float &ay, float &az) {
+    Wire.beginTransmission(QMA_ADDR);
+    Wire.write(REG_DX_L);
+    if (Wire.endTransmission(false) != 0) return false;
+    Wire.requestFrom(QMA_ADDR, (uint8_t)6);
+    if (Wire.available() < 6) return false;
+
+    uint8_t b[6];
+    for (int i = 0; i < 6; i++) b[i] = Wire.read();
+
+    auto to14 = [](uint8_t lsb, uint8_t msb) -> int16_t {
+        int16_t v = (int16_t)((msb << 6) | (lsb >> 2));
+        if (v & 0x2000) v |= (int16_t)0xC000;
+        return v;
+    };
+
+    ax = to14(b[0], b[1]) * SCALE_G;
+    ay = to14(b[2], b[3]) * SCALE_G;
+    az = to14(b[4], b[5]) * SCALE_G;
+    return true;
+}
+
+void setup() {
+    Serial.begin(115200);
+    while (!Serial) delay(10);
+
+    Wire.begin(SDA_PIN, SCL_PIN);
+    delay(100);
+
+    Serial.println("\n=== QMA Accelerometer ===");
+
+    // Soft reset
+    writeReg(REG_SOFT_RST, 0xB6);
+    delay(50);
+    writeReg(REG_SOFT_RST, 0x00);
+    delay(10);
+
+    uint8_t id = readReg(REG_CHIP_ID);
+    Serial.printf("Chip ID : 0x%02X", id);
+    if      (id == 0xE8) Serial.println(" (QMA7981)");
+    else if (id == 0xE7) Serial.println(" (QMA6100P)");
+    else                 Serial.println(" (unknown)");
+
+    // Standby dulu (clear mode bits), lalu konfigurasi
+    uint8_t pm = readReg(REG_PM) & ~0x03;
+    writeReg(REG_PM, pm);
+    delay(5);
+
+    writeReg(REG_RANGE,  0x04);   // ±8g
+    writeReg(REG_BW_ODR, 0x05);   // 128 Hz
+    delay(5);
+
+    // Active mode
+    writeReg(REG_PM, 0x80);
+    delay(30);
+
+    Serial.println("Status  : OK, membaca data...\n");
+    Serial.println("    X (g)         Y (g)         Z (g)");
+    Serial.println("  ---------     ---------     ---------");
+}
+
+void loop() {
+    float ax, ay, az;
+
+    if (!readXYZ(ax, ay, az)) {
+        Serial.println("ERROR: gagal baca sensor");
+        delay(500);
+        return;
+    }
+
+    Serial.printf("  %+8.4f      %+8.4f      %+8.4f\n", ax, ay, az);
+    delay(100);
+}
