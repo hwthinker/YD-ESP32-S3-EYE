@@ -45,12 +45,33 @@ Board YD-ESP32-S3-EYE menggunakan pin definition bawaan CircuitPython (`board.DI
 4. **Loop**: `cam.frame_available` → `cam.take()` → set bitmap TileGrid → refresh LCD
 5. Live preview kamera di LCD, ~8-10 fps
 
-### 4. py_turtle.py — Desktop Turtle (Pembanding)
+### 5. 05-cpyS3EYE_accelerometer.py — QMA7981/QMA6100P IMU Test
 
-1. Menggunakan library standard Python `turtle`
-2. 750×750 window, black pen
-3. Pola rotated squares identik dengan versi CircuitPython
-4. Berguna sebagai referensi/test bahwa algoritma berjalan benar
+1. Inisialisasi I2C (`busio.I2C`) pada pin SDA=4, SCL=5.
+2. Membaca Chip ID dan mengonfigurasi sensor via register I2C.
+3. Looping pembacaan nilai raw akselerometer X, Y, Z.
+4. Mengkonversi nilai raw (14-bit signed) menjadi skala gravitasi (g).
+5. Menampilkan hasil `(ax, ay, az)` ke terminal serial.
+
+### 6. 06-cpyS3EYE_imu_cube.py — 3D Wireframe Cube via IMU
+
+1. Setup LCD (`board.DISPLAY`) dengan `displayio.Bitmap` dan `Palette` 2 warna (hitam, cyan).
+2. Membaca data akselerometer IMU (seperti script #5).
+3. Menggunakan *low-pass filter* untuk menstabilkan sinyal.
+4. Mengkalkulasi *roll* dan *pitch* dari vektor gravitasi.
+5. Memproyeksikan verteks kubus 3D ke layar 2D berdasarkan kalkulasi sudut, dan menggambar garis penyambung verteks (*edges*) menggunakan fungsi cepat `bitmaptools.draw_line`.
+6. Tampilan di LCD merespons pergerakan orientasi board secara real-time.
+
+### 7. 07-cpyS3EYE_imu_cube_color.py — Colored 3D Cube
+
+1. Modifikasi dari `06-cpyS3EYE_imu_cube.py`.
+2. Menggunakan palet 4 warna (Hitam, Merah, Hijau, Biru Terang).
+3. Mewarnai sisi-sisi kubus berdasarkan sumbunya untuk mempermudah identifikasi orientasi saat board digerakkan:
+   - Sumbu X: Merah
+   - Sumbu Y: Hijau
+   - Sumbu Z: Biru Terang
+
+
 
 ---
 
@@ -118,10 +139,15 @@ espcamera settings:
   ...
 ```
 
-### Desktop Turtle
-Window 750×750 menampilkan pola rotated squares yang sama — memvalidasi algoritma sebelum dijalankan di ESP32.
+### QMA7981/QMA6100P Accelerometer
+Menampilkan log orientasi gravitasi sumbu X, Y, Z di terminal secara berkelanjutan.
 
----
+### 3D Wireframe Cube (Monochrome / Color)
+LCD menampilkan kubus 3D yang berputar secara responsif mengikuti kemiringan (tilt) dari YD-ESP32-S3-EYE berkat integrasi IMU dan LCD. Pada versi "color", kubus memiliki garis berwarna sesuai standar orientasi sumbu (RGB untuk XYZ) sehingga orientasi 3D-nya sangat intuitif.
+
+> **Catatan:** Fitur Microphone I2S (MSM261S4030H0) tidak didukung dalam lingkungan CircuitPython pada versi firmware 8.x/9.x saat ini (modul `audiobusio.I2SIn` tidak dikompilasi). Untuk proyek yang membutuhkan mic bawaan, direkomendasikan untuk menggunakan framework Arduino (folder `source-code-arduino`).
+
+
 
 ## Library yang Digunakan
 
@@ -134,12 +160,7 @@ Window 750×750 menampilkan pola rotated squares yang sama — memvalidasi algor
 | `adafruit_turtle` | Turtle graphics untuk displayio | `cpyS3EYE_turtle.py` |
 | `adafruit_espcamera` | Driver kamera OV2640 | `cpS3EYE_espcamera_displayio.py` |
 
-### Python Desktop
-| Library | Fungsi |
-|---------|--------|
-| `turtle` | Standard library — turtle graphics |
 
----
 
 ## Cara Instal Library
 

@@ -57,17 +57,17 @@ tail -f /var/log/syslog | grep tty
 esptool --port COM5 erase_flash
 
 # Linux
-esptool --port /dev/ttyUSB0 erase_flash
+esptool --port /dev/ttyUSB0 erase-flash
 ```
 
 ### Langkah 5: Flash Firmware Baru
 
 ```powershell
 # Windows
-esptool --port COM5 --baud 460800 write_flash -z 0x0 adafruit-circuitpython-espressif_esp32s3_eye-en_US-9.2.9.bin
+esptool --port COM5 --baud 460800 write-flash -z 0x0 adafruit-circuitpython-espressif_esp32s3_eye-en_US-9.2.9.bin
 
 # Linux
-esptool --port /dev/ttyUSB0 --baud 460800 write_flash -z 0x0 adafruit-circuitpython-espressif_esp32s3_eye-en_US-9.2.9.bin
+esptool --port /dev/ttyUSB0 --baud 460800 write-flash -z 0x0 adafruit-circuitpython-espressif_esp32s3_eye-en_US-9.2.9.bin
 ```
 
 > File firmware tersedia di folder `../circuitpython-firmware/`
