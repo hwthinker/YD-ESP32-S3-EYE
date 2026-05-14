@@ -35,6 +35,7 @@ Proyek eksplorasi penuh YD-ESP32-S3-EYE — mencakup pengujian semua peripheral 
 | 08 | [08-lcd-hello](source-code-arduino/08-lcd-hello/) | Test minimal LCD ST7789V — tampilkan "Halo Apa Kabar" | Arduino |
 | 09a | [09-i2c-scanner](source-code-arduino/09-i2c-scanner/) | Scan bus I2C — deteksi perangkat & alamat | Arduino |
 | 09b | [09-accelerometer](source-code-arduino/09-accelerometer/) | Baca akselerometer 3-axis QMA7981 via I2C → Serial UART | Arduino |
+| 10 | [10-imu-cube](source-code-arduino/10-imu-cube/) | Kubus wireframe 3D di LCD yang mengikuti gerakan IMU | Arduino |
 
 ### CircuitPython (circuit-python/)
 
