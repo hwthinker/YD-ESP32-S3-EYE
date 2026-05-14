@@ -1,0 +1,294 @@
+#include <Arduino.h>
+#line 1 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\07-lcd-display\\07-lcd-display.ino"
+/*
+ * 07-lcd-display.ino  v1.5
+ * Demo slideshow LCD 1.3" ST7789V pada ESP32-S3-EYE
+ *
+ * Board   : ESP32S3 Dev Module
+ * USB Mode: Hardware CDC and JTAG
+ * PSRAM   : OPI PSRAM
+ * Library : Adafruit ST7789 + Adafruit GFX (Library Manager)
+ *
+ * ── Pin LCD ST7789V 240×240 ───────────────────────────────
+ *   MOSI → GPIO 47    SCK → GPIO 21    CS → GPIO 44
+ *   DC   → GPIO 43    RST → -1 (tidak ada, terhubung ke EN board)
+ *   BL   → GPIO 48  (P-channel MOSFET: LOW = ON, HIGH = OFF)
+ *
+ * ── Root cause & fix (terkonfirmasi) ─────────────────────
+ * 1. BACKLIGHT POLARITY
+ *    Q2 = AO3401A P-channel MOSFET (high-side switch):
+ *      GPIO48 LOW  → VGS = -3.3V → ON  → backlight NYALA  ✓
+ *      GPIO48 HIGH → VGS =    0V → OFF → backlight MATI   ✗
+ *    LCD selalu menggambar dengan benar — backlight saja yang dimatikan
+ *    oleh kode yang salah (HIGH). Saat RST: GPIO Hi-Z → gate float ke GND
+ *    → MOSFET ON → backlight nyala → itulah kenapa terlihat saat RST.
+ *
+ * 2. COLD POWER-ON INIT
+ *    GPIO start dari 0V → CS (GPIO44, active-LOW) = LOW sebelum code jalan
+ *    → LCD ter-select, menerima sinyal noise dari boot → SPI state corrupt.
+ *    Fix: esp_reset_reason() == ESP_RST_POWERON → ESP.restart()
+ *    Software restart = GPIO ke Hi-Z = identik dengan tekan RST hardware
+ *    → boot ke-2: LCD dalam kondisi bersih → init selalu berhasil.
+ */
+
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
+#include <SPI.h>
+#include <esp_system.h>
+
+// ── Pin LCD ───────────────────────────────────────────────
+#define TFT_MOSI  47
+#define TFT_SCLK  21
+#define TFT_CS    44
+#define TFT_DC    43
+#define TFT_RST   -1   // tidak ada GPIO RST (dikonfirmasi CircuitPython board.c = NULL)
+#define TFT_BL    48   // backlight
+
+// ── Warna custom ─────────────────────────────────────────
+#define COLOR_BG      0x0841   // biru gelap
+#define COLOR_ACCENT  0x07FF   // cyan
+#define COLOR_WARN    0xFD20   // oranye
+#define COLOR_OK      0x07E0   // hijau
+#define COLOR_WHITE   ST77XX_WHITE
+#define COLOR_BLACK   ST77XX_BLACK
+
+// Hardware SPI — jauh lebih cepat dari software SPI
+// SPI.begin() dipanggil di setup() dengan pin kustom
+Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+
+// ── Helper: cetak teks terpusat ──────────────────────────
+#line 58 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\07-lcd-display\\07-lcd-display.ino"
+void drawCenteredText(const char* text, int y, uint16_t color, uint8_t size);
+#line 69 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\07-lcd-display\\07-lcd-display.ino"
+void screenBoot();
+#line 92 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\07-lcd-display\\07-lcd-display.ino"
+void screenColor();
+#line 120 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\07-lcd-display\\07-lcd-display.ino"
+void screenShapes();
+#line 149 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\07-lcd-display\\07-lcd-display.ino"
+void screenInfo();
+#line 184 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\07-lcd-display\\07-lcd-display.ino"
+void screenBounce(uint32_t durationMs);
+#line 212 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\07-lcd-display\\07-lcd-display.ino"
+void setup();
+#line 274 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\07-lcd-display\\07-lcd-display.ino"
+void loop();
+#line 58 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\07-lcd-display\\07-lcd-display.ino"
+void drawCenteredText(const char* text, int y, uint16_t color, uint8_t size) {
+  tft.setTextSize(size);
+  tft.setTextColor(color);
+  int16_t x1, y1;
+  uint16_t w, h;
+  tft.getTextBounds(text, 0, y, &x1, &y1, &w, &h);
+  tft.setCursor((240 - w) / 2, y);
+  tft.print(text);
+}
+
+// ── Layar 1: Boot splash ─────────────────────────────────
+void screenBoot() {
+  tft.fillScreen(COLOR_BG);
+
+  // Garis hias atas-bawah
+  tft.fillRect(0, 0, 240, 4, COLOR_ACCENT);
+  tft.fillRect(0, 236, 240, 4, COLOR_ACCENT);
+
+  drawCenteredText("YD-ESP32",  50, COLOR_WHITE,  2);
+  drawCenteredText("S3-EYE",    74, COLOR_WHITE,  2);
+
+  // Kotak aksen
+  tft.drawRoundRect(30, 100, 180, 3, 2, COLOR_ACCENT);
+
+  drawCenteredText("LCD ST7789V", 112, COLOR_ACCENT, 1);
+  drawCenteredText("240 x 240 px", 126, COLOR_ACCENT, 1);
+
+  tft.fillCircle(120, 168, 24, COLOR_WARN);
+  drawCenteredText("OK", 160, COLOR_BLACK, 2);
+
+  drawCenteredText("v1.5  2026", 210, 0x8410, 1);
+}
+
+// ── Layar 2: Demo warna ──────────────────────────────────
+void screenColor() {
+  uint16_t colors[] = {
+    ST77XX_RED, ST77XX_GREEN, ST77XX_BLUE,
+    ST77XX_YELLOW, ST77XX_CYAN, ST77XX_MAGENTA,
+    ST77XX_WHITE, ST77XX_ORANGE
+  };
+  const char* names[] = {
+    "RED", "GREEN", "BLUE",
+    "YELLOW", "CYAN", "MAGENTA",
+    "WHITE", "ORANGE"
+  };
+
+  int cols = 4, rows = 2;
+  int w = 240 / cols, h = 240 / rows;
+
+  for (int r = 0; r < rows; r++) {
+    for (int c = 0; c < cols; c++) {
+      int idx = r * cols + c;
+      tft.fillRect(c * w, r * h, w, h, colors[idx]);
+      tft.setTextColor(COLOR_BLACK);
+      tft.setTextSize(1);
+      tft.setCursor(c * w + 4, r * h + h / 2 - 4);
+      tft.print(names[idx]);
+    }
+  }
+}
+
+// ── Layar 3: Demo bentuk geometri ────────────────────────
+void screenShapes() {
+  tft.fillScreen(COLOR_BLACK);
+  drawCenteredText("Shapes Demo", 4, COLOR_WHITE, 1);
+
+  // Persegi panjang
+  tft.fillRect(10, 20, 80, 50, ST77XX_BLUE);
+  tft.drawRect(10, 20, 80, 50, COLOR_WHITE);
+
+  // Lingkaran
+  tft.fillCircle(175, 45, 35, ST77XX_RED);
+  tft.drawCircle(175, 45, 35, COLOR_WHITE);
+
+  // Segitiga
+  tft.fillTriangle(60, 130, 10, 190, 110, 190, ST77XX_GREEN);
+  tft.drawTriangle(60, 130, 10, 190, 110, 190, COLOR_WHITE);
+
+  // Rounded rect
+  tft.fillRoundRect(130, 125, 100, 60, 12, ST77XX_MAGENTA);
+  tft.drawRoundRect(130, 125, 100, 60, 12, COLOR_WHITE);
+
+  // Garis diagonal
+  for (int i = 0; i < 240; i += 20) {
+    tft.drawLine(0, 200, i, 240, COLOR_ACCENT);
+  }
+
+  drawCenteredText("Rect Circle Tri", 208, COLOR_WARN, 1);
+}
+
+// ── Layar 4: Info board ──────────────────────────────────
+void screenInfo() {
+  tft.fillScreen(0x0010);  // biru sangat gelap
+
+  // Header
+  tft.fillRect(0, 0, 240, 28, COLOR_ACCENT);
+  tft.setTextColor(COLOR_BLACK);
+  tft.setTextSize(2);
+  tft.setCursor(8, 6);
+  tft.print("BOARD INFO");
+
+  int y = 38;
+  struct { const char* label; const char* val; uint16_t col; } info[] = {
+    { "MCU  :", "ESP32-S3",    COLOR_WHITE  },
+    { "PSRAM:", "8 MB OPI",    COLOR_OK     },
+    { "Flash:", "8 MB",        COLOR_OK     },
+    { "Cam  :", "OV2640",      COLOR_OK     },
+    { "LCD  :", "ST7789V",     COLOR_OK     },
+    { "Mic  :", "I2S 16kHz",   COLOR_OK     },
+    { "SD   :", "SDMMC 1-bit", COLOR_OK     },
+    { "WiFi :", "2.4GHz BLE5", COLOR_ACCENT },
+  };
+
+  tft.setTextSize(1);
+  for (auto& row : info) {
+    tft.setTextColor(0x8C71);          // abu label
+    tft.setCursor(8, y);
+    tft.print(row.label);
+    tft.setTextColor(row.col);
+    tft.setCursor(72, y);
+    tft.print(row.val);
+    y += 22;
+  }
+}
+
+// ── Layar 5: Animasi bola bouncing ──────────────────────
+void screenBounce(uint32_t durationMs) {
+  tft.fillScreen(COLOR_BLACK);
+  drawCenteredText("Bounce!", 112, 0x8410, 1);
+
+  int bx = 120, by = 120, r = 18;
+  int dx = 3, dy = 2;
+  uint16_t ballColor = ST77XX_CYAN;
+  uint32_t start = millis();
+
+  while (millis() - start < durationMs) {
+    // Hapus posisi lama
+    tft.fillCircle(bx, by, r, COLOR_BLACK);
+
+    bx += dx;
+    by += dy;
+
+    // Pantul dari tepi
+    if (bx - r < 0)   { bx = r;       dx = abs(dx); ballColor = ST77XX_RED;     }
+    if (bx + r > 239)  { bx = 239 - r; dx = -abs(dx); ballColor = ST77XX_GREEN;  }
+    if (by - r < 0)   { by = r;       dy = abs(dy); ballColor = ST77XX_YELLOW;  }
+    if (by + r > 239)  { by = 239 - r; dy = -abs(dy); ballColor = ST77XX_CYAN;   }
+
+    tft.fillCircle(bx, by, r, ballColor);
+    delay(12);
+  }
+}
+
+// ── Setup ─────────────────────────────────────────────────
+void setup() {
+  Serial.begin(115200);
+
+  // CS HIGH pertama — cegah LCD ter-select saat GPIO masih 0V saat power-up
+  pinMode(TFT_CS, OUTPUT);
+  digitalWrite(TFT_CS, HIGH);
+
+  // ROOT CAUSE DITEMUKAN: Q2 (AO3401A) adalah P-channel MOSFET high-side switch
+  // LOW  → VGS=-3.3V → MOSFET ON  → backlight NYALA  ← BENAR
+  // HIGH → VGS=0V    → MOSFET OFF → backlight MATI   ← SALAH (semua versi sebelumnya!)
+  // Selama ini backlight mati → layar hitam padahal LCD sudah menggambar dengan benar.
+  // Saat RST ditekan: GPIO48 Hi-Z → gate float ke GND → MOSFET ON → backlight nyala
+  // Itulah kenapa hanya terlihat saat RST ditekan!
+  pinMode(TFT_BL, OUTPUT);
+  digitalWrite(TFT_BL, LOW);   // LOW = backlight ON (P-channel MOSFET)
+
+  // Cold power-on: software restart untuk reset GPIO ke Hi-Z (sama seperti tekan RST)
+  // Setelah restart: LCD dalam kondisi bersih untuk di-init
+  if (esp_reset_reason() == ESP_RST_POWERON) {
+    delay(200);
+    ESP.restart();
+  }
+
+  delay(50);
+  SPI.begin(TFT_SCLK, -1, TFT_MOSI);
+  tft.init(240, 240);
+  tft.setRotation(2);   // terkonfirmasi dari foto: rotation=2 = teks benar
+  tft.fillScreen(COLOR_BLACK);
+
+  Serial.println("\n╔══════════════════════════════════╗");
+  Serial.println("║  ESP32-S3-EYE  LCD ST7789V Test ║");
+  Serial.println("║  BL=LOW(P-ch)  v1.5             ║");
+  Serial.println("╚══════════════════════════════════╝");
+
+  // ── Slideshow infinite — jalan di sini agar tidak bergantung loop() ──
+  uint16_t cycle = 0;
+  while (true) {
+    cycle++;
+    Serial.printf("\n[Siklus %d]\n", cycle);
+
+    Serial.println("  [1] Boot splash");
+    screenBoot();
+    delay(2500);
+
+    Serial.println("  [2] Color blocks");
+    screenColor();
+    delay(2000);
+
+    Serial.println("  [3] Shapes demo");
+    screenShapes();
+    delay(2500);
+
+    Serial.println("  [4] Board info");
+    screenInfo();
+    delay(3000);
+
+    Serial.println("  [5] Bounce animation");
+    screenBounce(4000);
+  }
+}
+
+// ── Loop kosong — slideshow berjalan di setup() ──────────
+void loop() {}
+

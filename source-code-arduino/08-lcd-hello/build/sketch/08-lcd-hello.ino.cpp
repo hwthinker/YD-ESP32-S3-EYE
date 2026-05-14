@@ -1,0 +1,109 @@
+#include <Arduino.h>
+#line 1 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\08-lcd-hello\\08-lcd-hello.ino"
+/*
+ * 08-lcd-hello.ino
+ * Test minimal LCD ST7789V — tampilkan "Halo Apa Kabar"
+ *
+ * Board   : ESP32S3 Dev Module
+ * USB Mode: Hardware CDC and JTAG
+ * PSRAM   : OPI PSRAM
+ *
+ * ROOT CAUSE layar hitam saat power-up:
+ *   Pada cold power-on, semua GPIO mulai dari 0V termasuk GPIO44 (LCD CS,
+ *   active-LOW). LCD ter-select sebelum code jalan. Kombinasi dengan SCK
+ *   transisi saat SPI.begin() mengacaukan SPI state machine LCD.
+ *   Setelah press RST: GPIO ke Hi-Z → LCD reset → init berhasil.
+ *
+ * FIX: Deteksi cold power-on via esp_reset_reason() → panggil ESP.restart().
+ *   ESP.restart() me-reset GPIO ke Hi-Z (identik dengan press RST hardware).
+ *   Boot kedua (ESP_RST_SW): LCD dalam kondisi bersih → init selalu berhasil.
+ */
+
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
+#include <SPI.h>
+#include <esp_system.h>
+
+#define TFT_MOSI  47
+#define TFT_SCLK  21
+#define TFT_CS    44
+#define TFT_DC    43
+#define TFT_RST   -1
+#define TFT_BL    48
+
+Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+
+#line 34 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\08-lcd-hello\\08-lcd-hello.ino"
+void setup();
+#line 101 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\08-lcd-hello\\08-lcd-hello.ino"
+void loop();
+#line 34 "C:\\Users\\hardware\\Documents\\REPO-Github\\YD-ESP32-S3-EYE\\source-code-arduino\\08-lcd-hello\\08-lcd-hello.ino"
+void setup() {
+  // CS HIGH PERTAMA — hentikan LCD selection saat GPIO masih di 0V
+  pinMode(TFT_CS, OUTPUT);
+  digitalWrite(TFT_CS, HIGH);
+  pinMode(TFT_DC, OUTPUT);
+  digitalWrite(TFT_DC, HIGH);
+
+  // Cold power-on: GPIO mulai 0V → LCD mungkin dalam bad state.
+  // Software restart me-reset semua GPIO ke Hi-Z — sama persis dengan
+  // menekan tombol RST hardware. Boot kedua: LCD clean, init berhasil.
+  if (esp_reset_reason() == ESP_RST_POWERON) {
+    delay(200);        // beri waktu power stabil
+    ESP.restart();     // boot ke-2 masuk ESP_RST_SW → LCD fresh
+  }
+
+  // Boot ke-2 (ESP_RST_SW) atau setelah hardware RST (ESP_RST_EXT):
+  // LCD sudah dalam kondisi bersih setelah GPIO reset ke Hi-Z
+  delay(50);
+
+  // Q2 = AO3401A P-channel MOSFET high-side switch:
+  // LOW → VGS=-3.3V → MOSFET ON → backlight NYALA
+  // HIGH → VGS=0V   → MOSFET OFF → backlight MATI (kebalik dari N-channel!)
+  pinMode(TFT_BL, OUTPUT);
+  digitalWrite(TFT_BL, LOW);
+
+  SPI.begin(TFT_SCLK, -1, TFT_MOSI);
+  tft.init(240, 240);
+  tft.setRotation(2);
+
+  // ── Layar "Halo Apa Kabar" ───────────────────────────────
+  tft.fillScreen(0x0841);            // biru gelap
+
+  // Garis hias
+  tft.fillRect(0, 0,   240, 4, 0x07FF);   // cyan atas
+  tft.fillRect(0, 236, 240, 4, 0x07FF);   // cyan bawah
+
+  // Tulisan utama
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(3);
+  tft.setCursor(52, 70);
+  tft.print("Halo");
+
+  tft.setTextColor(0x07FF);          // cyan
+  tft.setTextSize(2);
+  tft.setCursor(22, 120);
+  tft.print("Apa Kabar?");
+
+  // Divider
+  tft.drawFastHLine(20, 155, 200, 0x07FF);
+
+  // Info board
+  tft.setTextColor(0x8410);          // abu
+  tft.setTextSize(1);
+  tft.setCursor(35, 170);
+  tft.print("YD-ESP32-S3-EYE");
+  tft.setCursor(48, 185);
+  tft.print("LCD ST7789V");
+  tft.setCursor(30, 200);
+  tft.print("240x240  SPI  3.3V");
+
+  // Reset reason info di Serial
+  Serial.begin(115200);
+  delay(100);
+  Serial.printf("\nReset reason: %d\n", (int)esp_reset_reason());
+  Serial.println("LCD init OK — Halo Apa Kabar!");
+}
+
+void loop() {}
+
