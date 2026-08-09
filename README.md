@@ -1,5 +1,27 @@
 # YD-ESP32-S3-EYE (espressif_esp32s3_eye V.2.2)
 
+<!-- hwthinker-store-links -->
+
+## Beli boardnya & tutorial lengkap
+
+**Board yang dipakai di repo ini tersedia di HwThinker Store:**
+
+- [YD-ESP32-S3-EYE Board WiFi Bluetooth OV2640 2MP and 1.3 inch Display](https://hwthinker.com/produk/58370560-4f94-4c9b-b7fa-2d1ad2f7aa40)
+
+**Tutorial lengkap — langkah bergambar, troubleshooting, dan kode yang sudah diuji:**
+
+- [YD-ESP32-S3-EYE — Restore Firmware Pabrik V2.2](https://hwthinker.com/tutorials/yd-esp32-s3-eye-firmware-pabrik)
+- [YD-ESP32-S3-EYE — CircuitPython (LCD, Kamera, Turtle)](https://hwthinker.com/tutorials/yd-esp32-s3-eye-circuitpython)
+- [YD-ESP32-S3-EYE 10 — Kubus 3D Mengikuti IMU](https://hwthinker.com/tutorials/yd-esp32-s3-eye-10-imu-cube)
+- [YD-ESP32-S3-EYE 09b — Akselerometer QMA7981](https://hwthinker.com/tutorials/yd-esp32-s3-eye-09b-akselerometer)
+- [YD-ESP32-S3-EYE 09a — I2C Scanner](https://hwthinker.com/tutorials/yd-esp32-s3-eye-09a-i2c-scanner)
+- [YD-ESP32-S3-EYE 08 — LCD Hello (Test Minimal)](https://hwthinker.com/tutorials/yd-esp32-s3-eye-08-lcd-hello)
+
+Butuh bantuan pemasangan? Sapa kami lewat live chat di [hwthinker.com](https://hwthinker.com) — barang dikirim dari Surabaya, sudah diuji sebelum dikemas.
+
+<!-- /hwthinker-store-links -->
+
+
 Proyek eksplorasi penuh YD-ESP32-S3-EYE — mencakup pengujian semua peripheral onboard (SD Card, LED, Tombol, Mikrofon I2S, Kamera OV2640, LCD ST7789V) menggunakan Arduino IDE dan CircuitPython.
 
 ----
